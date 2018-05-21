@@ -1,0 +1,131 @@
+---
+title: "datavis"
+author: "Amy"
+date: "May 18, 2018"
+output: github_document
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F,message=F,comment=NA)
+library(tidyverse)
+library(reshape2)
+library(lubridate)
+library(treemap)
+#devtools::install_github("timelyportfolio/d3treeR")
+library(d3treeR)
+```
+
+```{r}
+d1 <- read.csv("accidents_2005_to_2007.csv")%>%select(Accident_Severity,Number_of_Vehicles:Day_of_Week,Weather_Conditions:Year,Time)
+d2 <- read.csv("accidents_2009_to_2011.csv")%>%select(Accident_Severity,Number_of_Vehicles:Day_of_Week,Weather_Conditions:Year,Time)
+d3 <- read.csv("accidents_2012_to_2014.csv")%>%select(Accident_Severity,Number_of_Vehicles:Day_of_Week,Weather_Conditions:Year,Time)
+
+data <- bind_rows(d1,d2,d3)
+data$Day_of_Week1=factor(data$Day_of_Week,levels=1:7,labels=c("Mon","Tue","Wed","Thu","Fri","Sat","Sun"))
+data$Urban_or_Rural_Area=factor(data$Urban_or_Rural_Area,levels=1:2,labels=c("Urban","Rural"))
+
+```
+
+
+```{r cleaning}
+# remove missing outcome info
+data%>%filter((Did_Police_Officer_Attend_Scene_of_Accident)!="")%>%
+  filter(is.na(Urban_or_Rural_Area)!="")->data1
+
+# fix format
+data1$Year=as.character(data1$Year)
+
+# hour categories
+data1$hour=hour(hm(data1$Time))
+data1$hour_cat <- cut(data1$hour,breaks = c(0, 3,6,9, 12,15, 18,21, 24), include.lowest = TRUE)
+```
+
+1. Overall trend by year
+
+```{r}
+p1 <- ggplot(data=data1,aes(x=factor(1),fill=Did_Police_Officer_Attend_Scene_of_Accident))+geom_bar()+facet_wrap(~Year) + coord_polar("y")
+p1
+```
+
+2. Attempt 2. Convert to %/ratio beforehand and then use it to get the position of the text label
+
+```{r}
+# your data
+y <- data1%>%select(Year,Did_Police_Officer_Attend_Scene_of_Accident)
+
+# get counts and melt it
+data.m = melt(table(y)) 
+names(data.m)[3] = "count"
+
+# calculate percentage:
+m1 <-  data.m%>%filter(Did_Police_Officer_Attend_Scene_of_Accident!="")%>%spread(Did_Police_Officer_Attend_Scene_of_Accident,count)%>%mutate(ratio=Yes/(Yes+No))
+m1$No_ratio=1-m1$ratio
+
+m1%>%rename(Yes_ratio=ratio)->m1
+
+m1%>%select(-Yes,-No)%>%gather("Police","Ratio",-Year)->m2
+m2$Police=gsub("_ratio","",m2$Police)
+
+p2 <- ggplot(data=m2,aes(x=factor(1),y=Ratio,fill=Police))+geom_bar(stat="identity",position="dodge")+facet_wrap(~Year) 
+p2
+```
+
+attempt 3
+
+```{r}
+ggplot(data=m2%>%filter(Police=="Yes"),aes(x=as.factor(Year),y=Ratio,group=1))+geom_point(colour="red",size=5)+geom_line(colour="orange",size=2)+ylim(0.75,0.9)+xlab("Year")+ylab("% of Police Attendance")+theme_bw()
+```
+
+Not very interesting all between 0.8-0.82, year is not that important
+
+aggregate all data 
+
+Is day of the week affects attendance rate?
+
+```{r}
+data1%>%filter(Urban_or_Rural_Area%in%c("Urban","Rural"))%>%select(Urban_or_Rural_Area,Did_Police_Officer_Attend_Scene_of_Accident,Day_of_Week1)->data1a
+
+ggplot(aes(x = Day_of_Week1), data = data1a) +
+  geom_bar(stat = 'count', position = 'stack',aes(fill=Did_Police_Officer_Attend_Scene_of_Accident)) +
+  xlab('Days') +
+  ylab('Police attendance total') +
+  ggtitle('Police attendence by Day of the week ') 
+
+## convert to percentage
+
+data1a%>%filter(Did_Police_Officer_Attend_Scene_of_Accident=="Yes")%>%group_by(Day_of_Week1)%>%summarise(show=n())->shown
+data1a%>%filter(Did_Police_Officer_Attend_Scene_of_Accident=="No")%>%group_by(Day_of_Week1)%>%summarise(noshow=n())->noshown
+
+daydata <- bind_cols(shown,noshown)%>%select(Day_of_Week1,show,noshow)%>%gather("Police","N",2:3)
+
+library(scales)
+ggplot(daydata,aes(x = Day_of_Week1, y = N,fill = Police)) + 
+    geom_bar(position = "fill",stat = "identity") +
+    scale_y_continuous(labels = percent_format())+xlab("Day of the Week")+ylab("")+ggtitle("Attendance Rate by Day of the Week")
+```
+
+```{r}
+
+data1%>%filter(Did_Police_Officer_Attend_Scene_of_Accident=="Yes")%>%group_by(Day_of_Week,hour_cat)%>%summarise(showbyhour=n())->datayes
+
+
+treemap(datayes, index=c("hour_cat","Day_of_Week"), vSize="showbyhour", type="index", fontsize.labels=c(15,13), title='Police attendance number by time of the day', fontcolor.labels=c("white","orange"), fontface.labels=c(2,1), bg.labels=c("transparent"),  align.labels=list(
+  c("center", "center"), c("right", "bottom")), overlap.labels=0.5, inflate.labels=F,
+)
+```
+
+Does pattern match overall number of accident?
+
+```{r}
+data1%>%group_by(Day_of_Week,hour_cat)%>%summarise(accidentbyhour=n())->dataaccident
+
+
+treemap(dataaccident, index=c("hour_cat","Day_of_Week"), vSize="accidentbyhour", type="index", fontsize.labels=c(15,13), title='number of accident by time of the day', fontcolor.labels=c("white","orange"), fontface.labels=c(2,1), bg.labels=c("transparent"),  align.labels=list(
+  c("center", "center"), c("right", "bottom")), overlap.labels=0.5, inflate.labels=F,
+)->p2
+
+# make it interactive ("rootname" becomes the title of the plot):
+inter=d3tree( p2 ,  rootname = "Overall" )
+inter
+```
