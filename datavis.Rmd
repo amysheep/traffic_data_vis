@@ -2,21 +2,24 @@
 title: "datavis"
 author: "Amy"
 date: "May 18, 2018"
-output: github_document
+output: 
+  html_document:
+    keep_md: true
 
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = F,message=F,comment=NA)
+knitr::opts_chunk$set(echo = F,message=F,comment=NA,warning=F)
 library(tidyverse)
 library(reshape2)
 library(lubridate)
 library(treemap)
+library(scales) # % format in plot
 #devtools::install_github("timelyportfolio/d3treeR")
 library(d3treeR)
 ```
 
-```{r}
+```{r,cache=T}
 d1 <- read.csv("accidents_2005_to_2007.csv")%>%select(Accident_Severity,Number_of_Vehicles:Day_of_Week,Weather_Conditions:Year,Time)
 d2 <- read.csv("accidents_2009_to_2011.csv")%>%select(Accident_Severity,Number_of_Vehicles:Day_of_Week,Weather_Conditions:Year,Time)
 d3 <- read.csv("accidents_2012_to_2014.csv")%>%select(Accident_Severity,Number_of_Vehicles:Day_of_Week,Weather_Conditions:Year,Time)
@@ -38,17 +41,17 @@ data1$Year=as.character(data1$Year)
 
 # hour categories
 data1$hour=hour(hm(data1$Time))
-data1$hour_cat <- cut(data1$hour,breaks = c(0, 3,6,9, 12,15, 18,21, 24), include.lowest = TRUE)
+data1$hour_cat <- cut(data1$hour,breaks = c(0, 3,6,9, 12,15, 18,21, 24), include.lowest = TRUE,labels=c("Midnight-3am","3-6am","6-9am","9-noon","noon-3pm","3-6pm","6-9pm","9-Midnight"))
 ```
 
 1. Overall trend by year
 
-```{r}
+```{r,results='hide',eval=F}
 p1 <- ggplot(data=data1,aes(x=factor(1),fill=Did_Police_Officer_Attend_Scene_of_Accident))+geom_bar()+facet_wrap(~Year) + coord_polar("y")
 p1
 ```
 
-2. Attempt 2. Convert to %/ratio beforehand and then use it to get the position of the text label
+Convert to %/ratio beforehand and then use it to get the position of the text label
 
 ```{r}
 # your data
@@ -71,15 +74,19 @@ p2 <- ggplot(data=m2,aes(x=factor(1),y=Ratio,fill=Police))+geom_bar(stat="identi
 p2
 ```
 
-attempt 3
+The figures look almost identical on the 0-1 ratio scale. 
+
+Line graph to show trend overtime.
 
 ```{r}
 ggplot(data=m2%>%filter(Police=="Yes"),aes(x=as.factor(Year),y=Ratio,group=1))+geom_point(colour="red",size=5)+geom_line(colour="orange",size=2)+ylim(0.75,0.9)+xlab("Year")+ylab("% of Police Attendance")+theme_bw()
 ```
 
-Not very interesting all between 0.8-0.82, year is not that important
+In recent year, the attendance rate increased slightly.
 
-aggregate all data 
+Overall between 0.8-0.82. Year is not very interesting.
+
+Next, aggregate all data and look at:
 
 Is day of the week affects attendance rate?
 
@@ -99,33 +106,33 @@ data1a%>%filter(Did_Police_Officer_Attend_Scene_of_Accident=="No")%>%group_by(Da
 
 daydata <- bind_cols(shown,noshown)%>%select(Day_of_Week1,show,noshow)%>%gather("Police","N",2:3)
 
-library(scales)
+#library--> scale
 ggplot(daydata,aes(x = Day_of_Week1, y = N,fill = Police)) + 
     geom_bar(position = "fill",stat = "identity") +
     scale_y_continuous(labels = percent_format())+xlab("Day of the Week")+ylab("")+ggtitle("Attendance Rate by Day of the Week")
 ```
+Dig deeper:
 
+Does time of the day matter?
 ```{r}
 
-data1%>%filter(Did_Police_Officer_Attend_Scene_of_Accident=="Yes")%>%group_by(Day_of_Week,hour_cat)%>%summarise(showbyhour=n())->datayes
+data1%>%filter(Did_Police_Officer_Attend_Scene_of_Accident=="Yes")%>%group_by(Day_of_Week1,hour_cat)%>%summarise(showbyhour=n())->datayes
 
-
-treemap(datayes, index=c("hour_cat","Day_of_Week"), vSize="showbyhour", type="index", fontsize.labels=c(15,13), title='Police attendance number by time of the day', fontcolor.labels=c("white","orange"), fontface.labels=c(2,1), bg.labels=c("transparent"),  align.labels=list(
+treemap(datayes, index=c("hour_cat","Day_of_Week1"), vSize="showbyhour", type="index", fontsize.labels=c(15,11), title='Police attendance number by time of the day', fontcolor.labels=c("white","orange"), fontface.labels=c(2,1), bg.labels=c("transparent"),  align.labels=list(
   c("center", "center"), c("right", "bottom")), overlap.labels=0.5, inflate.labels=F,
 )
 ```
 
-Does pattern match overall number of accident?
+Does this pattern match the pattern for the overall number of accident?
 
 ```{r}
-data1%>%group_by(Day_of_Week,hour_cat)%>%summarise(accidentbyhour=n())->dataaccident
+data1%>%group_by(Day_of_Week1,hour_cat)%>%summarise(accidentbyhour=n())->dataaccident
 
-
-treemap(dataaccident, index=c("hour_cat","Day_of_Week"), vSize="accidentbyhour", type="index", fontsize.labels=c(15,13), title='number of accident by time of the day', fontcolor.labels=c("white","orange"), fontface.labels=c(2,1), bg.labels=c("transparent"),  align.labels=list(
+treemap(dataaccident, index=c("hour_cat","Day_of_Week1"), vSize="accidentbyhour", type="index", fontsize.labels=c(15,11), title='number of accident by time of the day', fontcolor.labels=c("white","orange"), fontface.labels=c(2,1), bg.labels=c("transparent"),  align.labels=list(
   c("center", "center"), c("right", "bottom")), overlap.labels=0.5, inflate.labels=F,
 )->p2
 
 # make it interactive ("rootname" becomes the title of the plot):
-inter=d3tree( p2 ,  rootname = "Overall" )
+inter=d3tree2( p2 ,  rootname = "Overall" )
 inter
 ```
