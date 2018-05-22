@@ -1,138 +1,170 @@
 ---
-title: "datavis"
+title: "UK traffic accident data visulization"
 author: "Amy"
-date: "May 18, 2018"
+date: "`r format(Sys.Date())`"
 output: 
   html_document:
     keep_md: true
-
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = F,message=F,comment=NA,warning=F)
+```{r setup, include=F}
+knitr::opts_chunk$set(echo = T,message=F,comment=NA,warning=F)
+```
+
+```{r}
 library(tidyverse)
-library(reshape2)
 library(lubridate)
 library(treemap)
 library(scales) # % format in plot
 #devtools::install_github("timelyportfolio/d3treeR")
 library(d3treeR)
 ```
-
+#### Read in data
 ```{r,cache=T}
 d1 <- read.csv("accidents_2005_to_2007.csv")%>%select(Accident_Severity,Number_of_Vehicles:Day_of_Week,Weather_Conditions:Year,Time)
 d2 <- read.csv("accidents_2009_to_2011.csv")%>%select(Accident_Severity,Number_of_Vehicles:Day_of_Week,Weather_Conditions:Year,Time)
 d3 <- read.csv("accidents_2012_to_2014.csv")%>%select(Accident_Severity,Number_of_Vehicles:Day_of_Week,Weather_Conditions:Year,Time)
-
 data <- bind_rows(d1,d2,d3)
-data$Day_of_Week1=factor(data$Day_of_Week,levels=1:7,labels=c("Mon","Tue","Wed","Thu","Fri","Sat","Sun"))
-data$Urban_or_Rural_Area=factor(data$Urban_or_Rural_Area,levels=1:2,labels=c("Urban","Rural"))
 
 ```
 
-
+#### Clean up a bit
 ```{r cleaning}
+#Label 
+data$Day_of_Week=factor(data$Day_of_Week,levels=1:7,labels=c("Mon","Tue","Wed","Thu","Fri","Sat","Sun"))
 # remove missing outcome info
-data%>%filter((Did_Police_Officer_Attend_Scene_of_Accident)!="")%>%
-  filter(is.na(Urban_or_Rural_Area)!="")->data1
-
+data%>%rename(Police=Did_Police_Officer_Attend_Scene_of_Accident)%>%filter(Police!="")->data1
 # fix format
 data1$Year=as.character(data1$Year)
-
 # hour categories
 data1$hour=hour(hm(data1$Time))
 data1$hour_cat <- cut(data1$hour,breaks = c(0, 3,6,9, 12,15, 18,21, 24), include.lowest = TRUE,labels=c("Midnight-3am","3-6am","6-9am","9-noon","noon-3pm","3-6pm","6-9pm","9-Midnight"))
 ```
 
-1. Overall trend by year
-
-```{r,results='hide',eval=F}
-p1 <- ggplot(data=data1,aes(x=factor(1),fill=Did_Police_Officer_Attend_Scene_of_Accident))+geom_bar()+facet_wrap(~Year) + coord_polar("y")
-p1
-```
-
-Convert to %/ratio beforehand and then use it to get the position of the text label
+### 1. Police Attendance Overall Trend by Year (% of attendance)
 
 ```{r}
-# your data
-y <- data1%>%select(Year,Did_Police_Officer_Attend_Scene_of_Accident)
+# subset of data
+data1%>%select(Year,Police) ->subdata
 
-# get counts and melt it
-data.m = melt(table(y)) 
-names(data.m)[3] = "count"
+## get counts convert to percentage
 
+subdata%>%filter(Police=="Yes")%>%group_by(Year)%>%summarise(show_yr=n())->shown_yr
+subdata%>%filter(Police=="No")%>%group_by(Year)%>%summarise(noshow_yr=n())->noshown_yr
+
+yrdata <- bind_cols(shown_yr,noshown_yr)%>%select(Year,show_yr,noshow_yr)
 # calculate percentage:
-m1 <-  data.m%>%filter(Did_Police_Officer_Attend_Scene_of_Accident!="")%>%spread(Did_Police_Officer_Attend_Scene_of_Accident,count)%>%mutate(ratio=Yes/(Yes+No))
-m1$No_ratio=1-m1$ratio
 
-m1%>%rename(Yes_ratio=ratio)->m1
+yrdata%>%mutate(Yes_ratio=show_yr/(show_yr+noshow_yr))%>%mutate(No_ratio=1-Yes_ratio)->yrdata
 
-m1%>%select(-Yes,-No)%>%gather("Police","Ratio",-Year)->m2
-m2$Police=gsub("_ratio","",m2$Police)
+yrdata%>%select(-show_yr,-noshow_yr)%>%gather("Police","Ratio",-Year)->yrdata2
+yrdata2$Police=gsub("_ratio","",yrdata2$Police)
 
-p2 <- ggplot(data=m2,aes(x=factor(1),y=Ratio,fill=Police))+geom_bar(stat="identity",position="dodge")+facet_wrap(~Year) 
+p2 <- ggplot(data=yrdata2,aes(x=Police,y=Ratio,fill=Police))+geom_bar(stat="identity",position="dodge")+facet_wrap(~Year) + xlab("")
+```
+
+#### Attempt 1: Bar graph
+```{r,echo=F}
 p2
 ```
 
-The figures look almost identical on the 0-1 ratio scale. 
+#### The figures look almost identical on the 0-1 ratio scale (not informative--bad!). 
 
-Line graph to show trend overtime.
+#### Attempt 2: Line graph to show trend overtime.
 
 ```{r}
-ggplot(data=m2%>%filter(Police=="Yes"),aes(x=as.factor(Year),y=Ratio,group=1))+geom_point(colour="red",size=5)+geom_line(colour="orange",size=2)+ylim(0.75,0.9)+xlab("Year")+ylab("% of Police Attendance")+theme_bw()
+##For line graphs, the data points must be grouped so that it knows which points to connect. In this case, it is simple – all points should be connected, so group=1. When more variables are used and multiple lines are drawn, the grouping for lines is usually done by variable.
+ggplot(data=yrdata2%>%filter(Police=="Yes"),aes(x=as.factor(Year),y=Ratio,group=1))+geom_point(colour="red",size=5)+geom_line(colour="orange",size=2)+ylim(0.75,0.9)+xlab("Year")+ylab("% of Police Attendance")+theme_bw()+ggtitle("Police attendance rate over time") ->bar_grph
 ```
 
-In recent year, the attendance rate increased slightly.
+#### This looks better
 
-Overall between 0.8-0.82. Year is not very interesting.
+```{r echo=F}
+bar_grph
+```
 
-Next, aggregate all data and look at:
+#### We can see that A. In recent years, the attendance rate increased slightly. B. Overall rate is between 0.8-0.82 --> Year is not very interesting.
 
-Is day of the week affects attendance rate?
+### 2. Next, aggregating data from all years and answering the question: Is day of the week affects police attendance rate?
 
 ```{r}
-data1%>%filter(Urban_or_Rural_Area%in%c("Urban","Rural"))%>%select(Urban_or_Rural_Area,Did_Police_Officer_Attend_Scene_of_Accident,Day_of_Week1)->data1a
+data1%>%select(Police,Day_of_Week)->data1a
 
-ggplot(aes(x = Day_of_Week1), data = data1a) +
-  geom_bar(stat = 'count', position = 'stack',aes(fill=Did_Police_Officer_Attend_Scene_of_Accident)) +
-  xlab('Days') +
-  ylab('Police attendance total') +
-  ggtitle('Police attendence by Day of the week ') 
+ggplot(aes(x = Day_of_Week), data = data1a) +
+  geom_bar(stat = 'count', position = 'stack',aes(fill=Police)) +
+  xlab('Day of the Week') +
+  ylab('Police attendance total N') +
+  ggtitle('Number of Police Attendence by Day of the Week ') +
+  theme_bw()
+```
 
+#### This plot tells us which day has the most accidents but hard to compare the % of attendance directly.
+
+#### We need to convert the raw number to a ratio --> standarize them so we can compare
+```{r}
 ## convert to percentage
+data1a%>%filter(Police=="Yes")%>%group_by(Day_of_Week)%>%summarise(show=n())->shown
+data1a%>%filter(Police=="No")%>%group_by(Day_of_Week)%>%summarise(noshow=n())->noshown
 
-data1a%>%filter(Did_Police_Officer_Attend_Scene_of_Accident=="Yes")%>%group_by(Day_of_Week1)%>%summarise(show=n())->shown
-data1a%>%filter(Did_Police_Officer_Attend_Scene_of_Accident=="No")%>%group_by(Day_of_Week1)%>%summarise(noshow=n())->noshown
-
-daydata <- bind_cols(shown,noshown)%>%select(Day_of_Week1,show,noshow)%>%gather("Police","N",2:3)
+daydata <- bind_cols(shown,noshown)%>%select(Day_of_Week,show,noshow)%>%gather("Police","N",2:3)
 
 #library--> scale
-ggplot(daydata,aes(x = Day_of_Week1, y = N,fill = Police)) + 
+ggplot(daydata,aes(x = Day_of_Week, y = N,fill = Police)) + 
     geom_bar(position = "fill",stat = "identity") +
-    scale_y_continuous(labels = percent_format())+xlab("Day of the Week")+ylab("")+ggtitle("Attendance Rate by Day of the Week")
-```
-Dig deeper:
-
-Does time of the day matter?
-```{r}
-
-data1%>%filter(Did_Police_Officer_Attend_Scene_of_Accident=="Yes")%>%group_by(Day_of_Week1,hour_cat)%>%summarise(showbyhour=n())->datayes
-
-treemap(datayes, index=c("hour_cat","Day_of_Week1"), vSize="showbyhour", type="index", fontsize.labels=c(15,11), title='Police attendance number by time of the day', fontcolor.labels=c("white","orange"), fontface.labels=c(2,1), bg.labels=c("transparent"),  align.labels=list(
-  c("center", "center"), c("right", "bottom")), overlap.labels=0.5, inflate.labels=F,
-)
+    scale_y_continuous(labels = percent_format())+xlab("Day of the Week")+ylab("")+ggtitle("Attendance Rate by Day of the Week")+theme_bw()
 ```
 
-Does this pattern match the pattern for the overall number of accident?
+#### We can see that police officers are working hard on Monday too!
+
+### 3. Dive deeper and look at time of the day variable.
+
+### Does time of the day matter? 
+
+**Treemap**: Treemaps are ideal for displaying large amounts of **hierarchically structured** (tree-structured) data. The space in the visualization is split up into rectangles that are sized and ordered by a quantitative variable.
 
 ```{r}
-data1%>%group_by(Day_of_Week1,hour_cat)%>%summarise(accidentbyhour=n())->dataaccident
 
-treemap(dataaccident, index=c("hour_cat","Day_of_Week1"), vSize="accidentbyhour", type="index", fontsize.labels=c(15,11), title='number of accident by time of the day', fontcolor.labels=c("white","orange"), fontface.labels=c(2,1), bg.labels=c("transparent"),  align.labels=list(
-  c("center", "center"), c("right", "bottom")), overlap.labels=0.5, inflate.labels=F,
-)->p2
+data1%>%filter(Police=="Yes")%>%group_by(Day_of_Week,hour_cat)%>%summarise(showbyhour=n())->show_time
 
-# make it interactive ("rootname" becomes the title of the plot):
-inter=d3tree2( p2 ,  rootname = "Overall" )
+treemap(show_time, #Your data frame object
+        index=c("hour_cat","Day_of_Week"), #A list of your categorical variables
+        vSize="showbyhour", #This is your quantitative variable
+        type="index", #Type sets the organization and color scheme of your treemap
+        palette = "Set3", #Select your color palette from the RColorBrewer presets or make your own.
+        fontsize.labels=c(15,8), 
+        title='Number of Police Attendance by Time & Day of the Week',  
+        fontcolor.labels=c("white","black"), 
+        fontface.labels=c(4,1), 
+        bg.labels=c("transparent"),  
+        align.labels=list(c("center", "center"), c("left", "bottom")), 
+        overlap.labels=1, 
+        inflate.labels=F)
+```
+
+### Q: Does this pattern match the pattern for the overall number of accident?
+
+```{r}
+data1%>%group_by(Day_of_Week,hour_cat)%>%summarise(accidentbyhour=n())->dataaccident
+
+treemap(dataaccident, #Your data frame object
+        index=c("hour_cat","Day_of_Week"), #A list of your categorical variables
+        vSize="accidentbyhour", #This is your quantitative variable
+        type="index", #Type sets the organization and color scheme of your treemap
+        palette = "Set3", #Select your color palette from the RColorBrewer presets or make your own.
+        fontsize.labels=c(15,8), 
+        title='Number of Police Attendance by Time & Day of the Week',  
+        fontcolor.labels=c("white","black"), 
+        fontface.labels=c(4,1), 
+        bg.labels=c("transparent"),  
+        align.labels=list(c("center", "center"), c("left", "bottom")), 
+        overlap.labels=1, 
+        inflate.labels=F)->tree_accident
+
+```
+
+### Make it interactive -- Zoom in
+```{r}
+# "rootname" becomes the title of the plot
+inter=d3tree2( tree_accident ,  rootname = "Overall" )
 inter
 ```
