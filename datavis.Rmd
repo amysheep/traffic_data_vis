@@ -85,7 +85,7 @@ bar_grph
 
 #### We can see that A. In recent years, the attendance rate increased slightly. B. Overall rate is between 0.8-0.82 --> Year is not very interesting.
 
-### 2. Next, aggregating data from all years and answering the question: Is day of the week affects police attendance rate?
+### 2. Next, aggregating data from all years and answering the question: Does day of the week affect police attendance rate?
 
 ```{r}
 data1%>%select(Police,Day_of_Week)->data1a
